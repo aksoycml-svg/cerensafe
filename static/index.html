@@ -243,9 +243,64 @@ body::before {
 ::-webkit-scrollbar { width:3px; height:3px; }
 ::-webkit-scrollbar-track { background:var(--bg); }
 ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+/* ═══ PASSWORD SCREEN ═══ */
+#pwScreen {
+  position:fixed; inset:0; z-index:10000;
+  background:var(--bg);
+  display:flex; align-items:center; justify-content:center;
+}
+#pwScreen::before {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(var(--border) 1px,transparent 1px),
+             linear-gradient(90deg,var(--border) 1px,transparent 1px);
+  background-size:60px 60px; opacity:.25;
+}
+#pwScreen::after {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(ellipse 70% 60% at 50% 50%,transparent 30%,var(--bg) 100%);
+}
+.pw-card {
+  position:relative; z-index:1;
+  width:340px; background:var(--bg2);
+  border:1px solid var(--border2); border-radius:10px;
+  padding:36px 32px; display:flex; flex-direction:column; align-items:center; gap:20px;
+  box-shadow:0 0 80px rgba(201,150,58,.06);
+}
+.pw-logo { width:44px; height:44px; background:linear-gradient(135deg,#1a1408,#2a2010); border:1px solid var(--gold)50; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+.pw-letter { font-family:var(--ff-serif); font-size:22px; font-weight:700; color:var(--gold2); line-height:1; }
+.pw-title { font-family:var(--ff-serif); font-size:20px; font-weight:600; color:var(--gold2); text-align:center; }
+.pw-sub { font-family:var(--ff-mono); font-size:9px; color:var(--text3); letter-spacing:.12em; text-transform:uppercase; text-align:center; margin-top:-12px; }
+.pw-field {
+  width:100%; background:var(--bg3); border:1px solid var(--border2); border-radius:6px;
+  color:var(--text); font-size:13px; font-family:var(--ff-mono); padding:11px 14px;
+  outline:none; letter-spacing:.08em; text-align:center; transition:border-color .15s;
+}
+.pw-field:focus { border-color:var(--gold)50; }
+.pw-field::placeholder { color:var(--text3); letter-spacing:.04em; font-size:11px; }
+.pw-btn {
+  width:100%; padding:13px; background:linear-gradient(135deg,var(--gold),#e8b050);
+  border:none; border-radius:6px; color:#08090d; font-size:11px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; cursor:pointer;
+  font-family:var(--ff-sans); transition:opacity .15s;
+}
+.pw-btn:hover { opacity:.88; }
+.pw-err { font-family:var(--ff-mono); font-size:10px; color:#ef4444; display:none; text-align:center; }
 </style>
 </head>
 <body>
+
+<!-- PASSWORD SCREEN -->
+<div id="pwScreen">
+  <div class="pw-card">
+    <div class="pw-logo"><span class="pw-letter">C</span></div>
+    <div class="pw-title">CerenSafe</div>
+    <div class="pw-sub">Breakdown Studio · Erişim Gerekli</div>
+    <input class="pw-field" id="pwInput" type="password" placeholder="Şifrenizi girin" autocomplete="current-password">
+    <button class="pw-btn" id="pwBtn">Giriş</button>
+    <div class="pw-err" id="pwErr">Hatalı şifre, tekrar deneyin.</div>
+  </div>
+</div>
 
 <!-- HEADER -->
 <div class="header">
@@ -580,6 +635,33 @@ function showViewer() {
   document.getElementById("sceneBadge").style.display = "inline";
 }
 
+// ── Şifre yönetimi ──
+const PW_KEY = "cs_pw";
+const CORRECT_PW = "setap2024";
+
+function unlockApp() {
+  document.getElementById("pwScreen").style.display = "none";
+}
+
+(function initPw() {
+  if (localStorage.getItem(PW_KEY) === CORRECT_PW) { unlockApp(); return; }
+  const input = document.getElementById("pwInput");
+  const err   = document.getElementById("pwErr");
+  function tryPw() {
+    if (input.value === CORRECT_PW) {
+      localStorage.setItem(PW_KEY, CORRECT_PW);
+      unlockApp();
+    } else {
+      err.style.display = "block";
+      input.value = "";
+      input.focus();
+    }
+  }
+  document.getElementById("pwBtn").addEventListener("click", tryPw);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") tryPw(); });
+  input.focus();
+})();
+
 document.getElementById("btnRun").addEventListener("click", async () => {
   const senaryo = document.getElementById("scenarioInp").value.trim();
   const anacast = document.getElementById("anacastInp").value.trim();
@@ -592,7 +674,7 @@ document.getElementById("btnRun").addEventListener("click", async () => {
     const tid = setTimeout(() => ctrl.abort(), 180000);
     const res = await fetch("/breakdown", {
       method:"POST", signal:ctrl.signal,
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json","X-App-Password":localStorage.getItem(PW_KEY)||""},
       body: JSON.stringify({ senaryo, anacast })
     });
     clearTimeout(tid);

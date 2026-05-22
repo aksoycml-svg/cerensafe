@@ -9,8 +9,9 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 
 PERSONA = open("persona.txt", encoding="utf-8").read()
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL   = "claude-sonnet-4-6"
+API_KEY      = os.environ.get("ANTHROPIC_API_KEY", "")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "setap2024")
+MODEL        = "claude-sonnet-4-6"
 
 @app.route("/")
 def index():
@@ -18,6 +19,9 @@ def index():
 
 @app.route("/breakdown", methods=["POST"])
 def breakdown():
+    if request.headers.get("X-App-Password", "") != APP_PASSWORD:
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+
     body    = request.get_json(force=True)
     senaryo = body.get("senaryo", "")
     anacast = body.get("anacast", "")
