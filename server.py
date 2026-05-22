@@ -1,5 +1,7 @@
 import os
-from flask import Flask, request, jsonify, send_from_directory
+import json
+import re
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import requests
 
@@ -16,9 +18,9 @@ def index():
 
 @app.route("/breakdown", methods=["POST"])
 def breakdown():
-    body     = request.get_json(force=True)
-    senaryo  = body.get("senaryo", "")
-    anacast  = body.get("anacast", "")
+    body    = request.get_json(force=True)
+    senaryo = body.get("senaryo", "")
+    anacast = body.get("anacast", "")
 
     json_instr = """
 
@@ -30,42 +32,76 @@ def breakdown():
         user_msg += f"AnaCast Beyaz Listesi:\n{anacast.strip()}\n\n---\n\n"
     user_msg += f"SENARYO:\n{senaryo.strip()}{json_instr}"
 
-    resp = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        },
-        json={
-            "model": MODEL,
-            "max_tokens": 4000,
-            "system": PERSONA,
-            "messages": [{"role": "user", "content": user_msg}]
-        },
-        timeout=119
-    )
+    def generate():
+        accumulated = []
+        try:
+            with requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": MODEL,
+                    "max_tokens": 4000,
+                    "stream": True,
+                    "system": PERSONA,
+                    "messages": [{"role": "user", "content": user_msg}]
+                },
+                stream=True,
+                timeout=119
+            ) as resp:
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    line = line.decode("utf-8")
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data_str)
+                    except Exception:
+                        continue
 
-    if resp.status_code != 200:
-        return jsonify({"error": resp.text}), resp.status_code
+                    if event.get("type") == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            chunk = delta.get("text", "")
+                            accumulated.append(chunk)
+                            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
 
-    data = resp.json()
-    if "error" in data:
-        return jsonify({"error": data["error"]["message"]}), 400
+                    elif event.get("type") == "message_stop":
+                        break
 
-    txt = "".join(b.get("text","") for b in data.get("content",[]))
+        except requests.exceptions.Timeout:
+            yield f"data: {json.dumps({'error': 'İstek zaman aşımına uğradı'})}\n\n"
+            return
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            return
 
-    import json, re
-    try:
-        result = json.loads(txt)
-    except:
-        m = re.search(r'\{[\s\S]*\}', txt)
-        if m:
-            result = json.loads(m.group(0))
-        else:
-            return jsonify({"error": "JSON parse edilemedi", "raw": txt[:500]}), 500
+        full_text = "".join(accumulated)
+        try:
+            result = json.loads(full_text)
+        except Exception:
+            m = re.search(r'\{[\s\S]*\}', full_text)
+            if m:
+                try:
+                    result = json.loads(m.group(0))
+                except Exception:
+                    yield f"data: {json.dumps({'error': 'JSON parse edilemedi', 'raw': full_text[:500]})}\n\n"
+                    return
+            else:
+                yield f"data: {json.dumps({'error': 'JSON parse edilemedi', 'raw': full_text[:500]})}\n\n"
+                return
 
-    return jsonify(result)
+        yield f"data: {json.dumps({'done': True, 'result': result})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

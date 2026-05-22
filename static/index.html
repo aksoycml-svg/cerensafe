@@ -141,9 +141,7 @@ function App() {
     if (!screenplay.trim()) return;
     setLoading(true); setError("");
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => { controller.abort(); }, 90000);
-    const jsonInstr = '\n\nÇıktını SADECE geçerli JSON olarak ver. Kod bloğu veya açıklama ekleme:\n{"scenes":[{"sahne":"1","bolum":"","gun":"1","zaman":"İÇ/GECE","sayfa":"1","mekan":"MEKAN","oyuncular":[],"yrd_oyuncular":[],"sac":[],"makyaj":[],"kostum":[],"sanat":[],"araclar":[],"produksiyon":[],"teknik":[],"cgi_vfx":[],"sfx":[],"sound_design":[],"reji_notlar":[],"aciklama":"","notlar":"","aciklama":"","notlar":""}]}';
-    const userPrompt = (anacast.trim() ? "AnaCast Beyaz Listesi:\n" + anacast.trim() + "\n\n---\n\n" : "") + "SENARYO:\n" + screenplay.trim() + jsonInstr;
+    const timeoutId = setTimeout(() => { controller.abort(); }, 115000);
     try {
       const res = await fetch("/breakdown", {
         method: "POST", signal: controller.signal,
@@ -152,16 +150,33 @@ function App() {
       });
       clearTimeout(timeoutId);
       if (!res.ok) { const errText = await res.text(); throw new Error("HTTP " + res.status + ": " + errText.slice(0, 200)); }
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      const parsed = data;
-      // Client-side: attach screenplay text to each scene
-      const rawScenes = splitScreenplay(screenplay);
-      const mergedScenes = (parsed.scenes || []).map((sc, i) => ({
-        ...sc,
-        screenplay_text: rawScenes[i] || rawScenes[Math.min(i, rawScenes.length-1)] || ""
-      }));
-      setScenes(mergedScenes); setSelIdx(0); setExpandedDepts({}); setScreen("viewer");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          let evt;
+          try { evt = JSON.parse(payload); } catch { continue; }
+          if (evt.error) throw new Error(evt.error);
+          if (evt.done && evt.result) {
+            const rawScenes = splitScreenplay(screenplay);
+            const mergedScenes = (evt.result.scenes || []).map((sc, i) => ({
+              ...sc,
+              screenplay_text: rawScenes[i] || rawScenes[Math.min(i, rawScenes.length-1)] || ""
+            }));
+            setScenes(mergedScenes); setSelIdx(0); setExpandedDepts({}); setScreen("viewer");
+          }
+        }
+      }
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
