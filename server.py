@@ -43,7 +43,7 @@ def breakdown():
             "system": PERSONA,
             "messages": [{"role": "user", "content": user_msg}]
         },
-        timeout=120
+        timeout=119
     )
 
     if resp.status_code != 200:
