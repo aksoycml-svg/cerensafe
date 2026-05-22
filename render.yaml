@@ -3,7 +3,7 @@ services:
     name: cerensafe
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --worker-class gevent --timeout 120 server:app
+    startCommand: gunicorn --timeout 120 server:app
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
