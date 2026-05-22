@@ -44,7 +44,7 @@ def breakdown():
                 },
                 json={
                     "model": MODEL,
-                    "max_tokens": 4000,
+                    "max_tokens": 10000,
                     "stream": True,
                     "system": PERSONA,
                     "messages": [{"role": "user", "content": user_msg}]
@@ -84,19 +84,29 @@ def breakdown():
             return
 
         full_text = "".join(accumulated)
-        try:
-            result = json.loads(full_text)
-        except Exception:
-            m = re.search(r'\{[\s\S]*\}', full_text)
+
+        def clean_and_parse(text):
+            # markdown code block temizle
+            text = re.sub(r'^```[a-zA-Z]*\s*', '', text.strip())
+            text = re.sub(r'\s*```$', '', text.strip())
+            # geçersiz kontrol karakterlerini temizle (tab/newline hariç)
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+            # doğrudan parse dene
+            try:
+                return json.loads(text)
+            except Exception:
+                pass
+            # JSON objesini metinden çıkar
+            m = re.search(r'\{[\s\S]*\}', text)
             if m:
-                try:
-                    result = json.loads(m.group(0))
-                except Exception:
-                    yield f"data: {json.dumps({'error': 'JSON parse edilemedi', 'raw': full_text[:500]})}\n\n"
-                    return
-            else:
-                yield f"data: {json.dumps({'error': 'JSON parse edilemedi', 'raw': full_text[:500]})}\n\n"
-                return
+                return json.loads(m.group(0))
+            raise ValueError("JSON bulunamadı")
+
+        try:
+            result = clean_and_parse(full_text)
+        except Exception:
+            yield f"data: {json.dumps({'error': 'JSON parse edilemedi', 'raw': full_text[:500]})}\n\n"
+            return
 
         yield f"data: {json.dumps({'done': True, 'result': result})}\n\n"
 
